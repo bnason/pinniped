@@ -241,6 +241,40 @@ or `kubectl create secret tls`. They must be Secrets of type `kubernetes.io/tls`
 Keep in mind that your end users must load some of these endpoints in their web browsers, so the TLS certificates
 should be signed by a certificate authority that is trusted by their browsers.
 
+## How to debug incoming requests
+
+### Enable Trace Logging
+
+Enable trace level logging by modifying the `pinniped-supervisor-stat-config` ConfigMap and add the following keys, then restart the supervisor pod(s).
+```yaml
+log:
+  level: trace
+```
+
+### Verify SNI Host and Certificate Match
+
+The TLS SNI needs to match the certificate specified in the FederationDomain or it will fall back to the default TLS service cert, if one is configured. If you do not have a default cert configured and the names do not match, you will receive the message `pinniped supervisor has invalid TLS serving certificate configuration`
+
+1) Get the tls secretName configured for your Federation Domain
+```bash
+kubectl get FederationDomain --namespace <namespace> <name> -o 'jsonpath={.spec.tls.secretName}{"\n"}''
+```
+
+2. Get the certificate contained within the secret and extract the domain name.
+```bash
+kubectl get Secret --namespace <namespace> <name> -o 'jsonpath={.data.tls\.crt}' | base64 -d | openssl x509 -noout -subject
+```
+
+3. Ensure the returned domain name matches the value in `info.ServerName` from the Supervisor logs.
+```bash
+kubectl get pods --namespace <namespace> -l app=pinniped-supervisor --follow --lines 100 | grep --line-buffered 'info.ServerName'
+```
+
+### Tips
+* You may need to configure your LoadBalancer to use a specific hostname when communicating with Supervisor.
+
+  * Example: Traefik, by default, does not use TLS SNI to communicate with backend endpoints. To enable it for your IngressRoute you will need to create a `ServersTransport` and specify the `spec.serverName` value to match your FederationDomain certificate.
+
 ## Next steps
 
 Next, configure an OIDCIdentityProvider, ActiveDirectoryIdentityProvider, or an LDAPIdentityProvider for the Supervisor
